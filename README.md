@@ -1,6 +1,6 @@
 # hytimer
-**hytimer** It is a timer implemented using minimum heap, which is very lightweight and uses very little resource.
-
+**hytimer**  is a timer implemented using the minimum heap "container/heap". It is very lightweight and uses very few resources. It is very efficient..
+hytimer是一个使用最小堆“container/heap”实现的定时器，它非常轻量级并且使用很少的资源，非常的高效。
 ## Installation
 > $ go get -u github.com/xuejiazhi/hytimer
 
