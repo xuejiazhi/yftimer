@@ -2,6 +2,9 @@ package timer
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -67,6 +70,8 @@ func Test_RunTimes(t *testing.T) {
 10 seconds is up,Timer Over
 */
 func Test_Cancel(t *testing.T) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	//Initializes and sets the queue size
 	inst := GetInstance(10000)
 	go func() {
@@ -83,7 +88,7 @@ func Test_Cancel(t *testing.T) {
 	time.Sleep(10 * time.Second)
 	inst.Cancel()
 	fmt.Println("10 seconds is up,Timer Over")
-	select {}
+	<-sigs
 }
 
 /*
