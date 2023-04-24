@@ -17,8 +17,10 @@ const (
 	DefaultPriority       = 1
 )
 
-// CallBackFunc 定义回调函数
+// CallBackFunc Define the callback function
 type CallBackFunc func(interface{})
+
+// HeapTimer Minimum heap timer structure definition
 
 type HeapTimer struct {
 	Locker        *sync.Mutex
@@ -27,14 +29,14 @@ type HeapTimer struct {
 }
 
 type Schedule struct {
-	Index        int64         `json:"index"`          //元素在堆中的索引
-	RunningTime  time.Time     `json:"running_time"`   //执行的时间
-	GrowthTime   time.Duration `json:"growth_time"`    //每次增加的时间
-	Priority     int           `json:"priority"`       //优先级
-	Params       interface{}   `json:"params"`         //回调的参数
-	CallBack     CallBackFunc  `json:"call_back"`      //回调函数
-	ExecRunTimes int32         `json:"exec_run_times"` //已运行次数
-	MaxRunTimes  int32         `json:"max_run_times"`  //最大运行次数
+	Index        int64         `json:"index"`          //index
+	RunningTime  time.Time     `json:"running_time"`   //Execution time
+	GrowthTime   time.Duration `json:"growth_time"`    //Each increment of time
+	Priority     int           `json:"priority"`       //Priority
+	Params       interface{}   `json:"params"`         //Parameter of the callback
+	CallBack     CallBackFunc  `json:"call_back"`      //Callback function
+	ExecRunTimes int32         `json:"exec_run_times"` //Number of runs
+	MaxRunTimes  int32         `json:"max_run_times"`  //Maximum run times
 }
 
 var (
@@ -52,13 +54,14 @@ type HeapInterface interface {
 	AddCallBack(time.Duration, CallBackFunc, interface{}, ...int) int64
 }
 
+// GetInstance begin get instance
 func GetInstance(queueSize int) HeapInterface {
 	//define queueSize
 	if queueSize <= 0 {
 		queueSize = QueueSize
 	}
 
-	//定义处理队列长度
+	//Defines the processing queue length
 	HandleQueue = make(chan *Schedule, queueSize)
 
 	//init
@@ -80,7 +83,7 @@ func GetInstance(queueSize int) HeapInterface {
 	return HeapInterface(&h)
 }
 
-// WorkChan 运行任务，遍历queue,函数回调
+// WorkChan Running tasks, traversing queues, function callbacks
 func (h *HeapTimer) WorkChan() {
 	//panic recover
 	defer handelPanic()
@@ -126,11 +129,12 @@ func (h *HeapTimer) Pop() interface{} {
 }
 
 /*
-	   @ AddScheduleFunc 增加任务
-		t time.Duration 多长时间运行一次
-		callBack 回调函数
-		params 回调函数的参数，只支持interface{};
-		addParams 可变参数  第一个值作为MaxRunTimes的值，默认为 -1，第二个值作为Priority 优先级的值
+	   @ AddScheduleFunc Add a task
+		t : time.Duration How often does it run
+		callBack : Callback function
+		params : Parameter of callback function. Only interface{} is supported;
+		addParams ：The first value of the variable argument is the value of MaxRunTimes,
+					which defaults to -1, and the second value is the value of Priority
 */
 //AddScheduleFunc add schedule
 func (h *HeapTimer) AddScheduleFunc(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int64 {
@@ -150,16 +154,16 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	h.Locker.Lock()
 	defer h.Locker.Unlock()
 
-	//定义MaxRunTimes的值
-	runTimes := Unlimited       //代表无限制
-	priority := DefaultPriority //优先级
+	//Define the value of MaxRunTimes
+	runTimes := Unlimited       //Unrestricted representation
+	priority := DefaultPriority //priority
 
 	if len(addParams) > 0 {
-		//第一个值为MaxRunTimes
+		//The first value is MaxRunTimes
 		if addParams[0] > 0 {
 			runTimes = int32(addParams[0])
 		}
-		//第二个值为priority
+		//The second value is priority
 		if len(addParams) > 1 {
 			priority = addParams[1]
 		}
@@ -187,7 +191,7 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	return index
 }
 
-// StarTimer 开始timer,调用scheduleLoop 取数据判断
+// StarTimer begin timer,call scheduleLoop Fetch data judgment
 func (h *HeapTimer) StarTimer() {
 	go func() {
 		for {
@@ -204,9 +208,10 @@ func (h *HeapTimer) StarTimer() {
 	}()
 }
 
-// Cancel 关闭定时任务
+// Cancel
+// Disabling a scheduled task
 func (h *HeapTimer) Cancel() {
-	//设置关闭Tag 通道为true
+	//Set closing the Tag channel to true
 	h.CloseTag <- true
 }
 
@@ -214,7 +219,9 @@ func (h *HeapTimer) StopIdx(index int64) {
 	IndexMap.Store(index, false)
 }
 
-// ScheduleLoop 循环从堆里面取数据并进行处理
+// ScheduleLoop
+//
+//	Loops fetch data from the heap and process it
 func (h *HeapTimer) ScheduleLoop() {
 	//panic recover
 	defer handelPanic()
@@ -228,45 +235,45 @@ func (h *HeapTimer) ScheduleLoop() {
 			break
 		}
 
-		//从最小堆里面取数据
+		//Fetch data from the minimum heap
 		t := heap.Pop(h).(*Schedule)
 
-		//判断是否已经被停止
+		//Determine whether it has been stopped
 		if idx, ok := IndexMap.Load(t.Index); ok {
 			if idx.(bool) == false {
 				IndexMap.Delete(t.Index)
 				break
 			}
 		} else {
-			//映射表里面没有这个值，存一份
+			//It's not in the map. Save a copy
 			IndexMap.Store(t.Index, true)
 		}
 
 		if t.RunningTime.Before(sTime) {
-			//将handle塞动HandleQueue
+			//Plug the handle into the HandleQueue
 			HandleQueue <- t
 
-			//如果有配置最大运行次数
+			//Maximum number of runs if configured
 			if t.MaxRunTimes > 0 {
 				atomic.AddInt32(&t.ExecRunTimes, 1)
 				if t.MaxRunTimes <= t.ExecRunTimes {
-					//直接退出不再push到堆
+					//Direct exit no longer pushes to the heap
 					break
 				}
 			}
 
-			//修改下一次执行时间
+			//Example Change the next execution time
 			t.RunningTime = sTime.Add(t.GrowthTime)
 		}
 
-		//重新push进去
+		//Re-push in
 		heap.Push(h, t)
 	}
 }
 
 // ------------------Local func--------------------------//
 func init() {
-	//设置随机数种子
+	//Set the random number seed
 	rand.Seed(time.Now().Unix())
 }
 
@@ -288,11 +295,12 @@ func getIndex() (index int64) {
 			return
 		}
 
-		//最大重试100次
+		//The maximum number of retries is 100
 		if i >= 100 {
 			break
 		}
 	}
-	//返回
+
+	//return
 	return
 }
