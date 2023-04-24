@@ -141,12 +141,12 @@ func (h *HeapTimer) Pop() interface{} {
 }
 
 /*
-	   @ AddScheduleFunc Add a task
-		t : time.Duration How often does it run
-		callBack : Callback function
-		params : Parameter of callback function. Only interface{} is supported;
-		addParams ：The first value of the variable argument is the value of MaxRunTimes,
-					which defaults to -1, and the second value is the value of Priority
+ @ AddScheduleFunc Add a task
+ t : time.Duration How often does it run
+ callBack : Callback function
+ params : Parameter of callback function. Only interface{} is supported;
+ addParams ：The first value of the variable argument is the value of MaxRunTimes,
+             which defaults to -1, and the second value is the value of Priority
 */
 //AddScheduleFunc add schedule
 func (h *HeapTimer) AddScheduleFunc(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int64 {
