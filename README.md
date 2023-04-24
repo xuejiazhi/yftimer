@@ -1,2 +1,142 @@
 # hytimer
-An efficient minimum heap timer is realized,一种用最小堆实现的定时器
+**hytimer** It is a timer implemented using minimum heap, which is very lightweight and uses very little resource.
+
+## Installation
+> $ go get -u github.com/xuejiazhi/hytimer
+
+## Usage
+### 1、init
+```
+===Coding
+//Initializes and sets the queue size
+inst := GetInstance(10000) 
+```
+### 2、Add Schedule 
+#### Func
+```
+/**
+ Adding a scheduled task
+ Once every 3 seconds
+ Callback function:FuncTest1
+ Callback function input param: "hello world" 
+**/
+inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello world")
+
+//Scheduled task start
+inst.StarTimer()
+select {}
+```
+
+#### OutPut
+```
+=== RUN   Test_Func
+[2023-04-24 16:40:36] hytimer:hello world
+[2023-04-24 16:40:39] hytimer:hello world
+[2023-04-24 16:40:42] hytimer:hello world
+[2023-04-24 16:40:45] hytimer:hello world
+[2023-04-24 16:40:48] hytimer:hello world
+[2023-04-24 16:40:51] hytimer:hello world
+........
+```
+### 3、Add Schedule Runtimes
+#### Func
+```
+/**
+ Adding a scheduled task
+ Once every 3 seconds
+ Callback function:FuncTest1
+ Callback function input param: "hello world" 
+ MaxRunTimes:3  It will stop after 3 runs 
+**/
+inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello world",3)
+
+//Scheduled task start
+inst.StarTimer()
+select {}
+```
+
+#### OutPut
+```
+=== RUN   Test_Func
+[2023-04-24 16:47:28] hytimer:hello world
+[2023-04-24 16:47:31] hytimer:hello world
+[2023-04-24 16:47:34] hytimer:hello world
+Run Over!
+```
+### 4、cancel Schedule
+#### Func
+```
+//Initializes and sets the queue size
+inst := GetInstance(10000)
+
+go func() {
+  /**
+    Adding a scheduled task
+    Once every 3 seconds
+    Callback function:FuncTest1
+    Callback function input param: "hello world"
+  **/
+  inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello world")
+  
+  //Scheduled task start
+  inst.StarTimer()
+}()
+
+//sleep 10 seconds
+time.Sleep(10 * time.Second)
+//cancel schedule
+inst.Cancel()
+
+fmt.Println("10 seconds is up,Timer Over")
+select {}
+```
+
+#### OutPut
+```
+=== RUN   Test_Cancel
+[2023-04-24 16:55:06] hytimer:hello world
+[2023-04-24 16:55:09] hytimer:hello world
+[2023-04-24 16:55:12] hytimer:hello world
+10 seconds is up,Timer Over
+```
+### 5、Stop By Index
+#### Func
+```
+//Initializes and sets the queue size
+inst := GetInstance(10000)
+
+/*
+  Adding a scheduled task
+  Once every 3 seconds
+  Callback function:FuncTest1
+  Callback function input param: "hello world"
+*/
+sid := inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello world")
+
+//Scheduled task start
+inst.StarTimer()
+	
+//sleep
+time.Sleep(10 * time.Second)
+fmt.Println(fmt.Sprintf("My schedule index is:%d 5 seconds will be close", sid))
+
+//stop by index
+time.Sleep(5 * time.Second)
+inst.StopIdx(sid)
+
+//print
+fmt.Println(fmt.Sprintf("schedule index [%d] close success", sid))
+```
+#### OutPut
+```
+=== RUN   Test_StopByIndex
+[2023-04-24 17:02:35] hytimer:hello world
+[2023-04-24 17:02:38] hytimer:hello world
+[2023-04-24 17:02:41] hytimer:hello world
+My schedule index is:37456253 5 seconds will be close
+[2023-04-24 17:02:44] hytimer:hello world
+schedule index [37456253] close success
+--- PASS: Test_StopByIndex (15.01s)
+PASS
+ok  	clog/hytimer	15.201s
+```
