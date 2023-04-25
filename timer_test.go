@@ -123,6 +123,16 @@ func Test_StopByIndex(t *testing.T) {
 	fmt.Println(fmt.Sprintf("schedule index [%d] close success", sid))
 }
 
+func Test_BatchSchedule(t *testing.T) {
+	//Initializes and sets the queue size
+	inst := GetInstance(10000)
+	for i := 0; i < 100; i++ {
+		inst.AddScheduleFunc(3*time.Second, FuncTest1, fmt.Sprintf("hello my id is=>%d", i))
+	}
+	inst.StarTimer()
+	select {}
+}
+
 // test function
 func FuncTest1(v interface{}) {
 	fmt.Println(fmt.Sprintf("[%s] hytimer:%s", time.Now().Format("2006-01-02 15:04:05"), v.(string)))

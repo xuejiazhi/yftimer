@@ -26,7 +26,7 @@ const (
 	MinRunTime            = 10 * time.Millisecond
 	QueueSize             = 10000 //队列长长度
 	Unlimited       int32 = -1
-	DefaultPriority       = 1
+	DefaultPriority int32 = 1
 )
 
 // CallBackFunc Define the callback function
@@ -35,16 +35,17 @@ type CallBackFunc func(interface{})
 // HeapTimer Minimum heap timer structure definition
 
 type HeapTimer struct {
-	Locker        *sync.Mutex
-	CloseTag      chan bool
-	TimerSchedule []*Schedule
+	Locker            *sync.Mutex
+	CloseTag          chan bool
+	SwapTimerSchedule []*Schedule
+	TimerSchedule     []*Schedule
 }
 
 type Schedule struct {
 	Index        int64         `json:"index"`          //index
 	RunningTime  time.Time     `json:"running_time"`   //Execution time
 	GrowthTime   time.Duration `json:"growth_time"`    //Each increment of time
-	Priority     int           `json:"priority"`       //Priority
+	Priority     int32         `json:"priority"`       //Priority
 	Params       interface{}   `json:"params"`         //Parameter of the callback
 	CallBack     CallBackFunc  `json:"call_back"`      //Callback function
 	ExecRunTimes int32         `json:"exec_run_times"` //Number of runs
@@ -118,7 +119,7 @@ func (h *HeapTimer) Len() int {
 func (h *HeapTimer) Less(i, j int) bool {
 	p1 := h.TimerSchedule[i].Priority
 	p2 := h.TimerSchedule[j].Priority
-	return p1 > p2
+	return p1 < p2
 }
 
 func (h *HeapTimer) Swap(i, j int) {
@@ -177,7 +178,7 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 		}
 		//The second value is priority
 		if len(addParams) > 1 {
-			priority = addParams[1]
+			priority = int32(addParams[1])
 		}
 	}
 
@@ -278,8 +279,23 @@ func (h *HeapTimer) ScheduleLoop() {
 			t.RunningTime = sTime.Add(t.GrowthTime)
 		}
 
-		//Re-push in
-		heap.Push(h, t)
+		//judge Priority
+		if t.Priority > 100 {
+			atomic.StoreInt32(&t.Priority, DefaultPriority)
+		} else {
+			atomic.AddInt32(&t.Priority, 1)
+		}
+
+		//append to swap
+		h.SwapTimerSchedule = append(h.SwapTimerSchedule, t)
+	}
+
+	//judge and operate
+	if h.Len() == 0 {
+		//copy swap to schedule
+		h.TimerSchedule = h.SwapTimerSchedule
+		//clean slice
+		h.SwapTimerSchedule = nil
 	}
 }
 
