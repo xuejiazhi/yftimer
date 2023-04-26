@@ -22,6 +22,7 @@ Tests add task functions
 ........
 */
 func Test_ScheduleFunc(t *testing.T) {
+	fmt.Println("Begin")
 	//Initializes and sets the queue size
 	inst := GetInstance(10000)
 	//Adding a scheduled task
@@ -130,6 +131,26 @@ func Test_BatchSchedule(t *testing.T) {
 		inst.AddScheduleFunc(3*time.Second, FuncTest1, fmt.Sprintf("hello my id is=>%d", i))
 	}
 	inst.StarTimer()
+	select {}
+}
+
+func Test_GetRunScIndexList(t *testing.T) {
+	inst := GetInstance(10000)
+	go func() {
+		inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello world")
+		inst.AddScheduleFunc(3*time.Second, FuncTest1, "hello golang")
+		//Scheduled task start
+		inst.StarTimer()
+	}()
+	inst.StarTimer()
+	//sleep
+	time.Sleep(10 * time.Second)
+	//get length
+	slen := inst.GetRunScLength()
+	fmt.Println("schedule length=>", slen)
+	//get index list
+	slist := inst.GetRunScIndexList()
+	fmt.Println("schedule list=>", *slist)
 	select {}
 }
 

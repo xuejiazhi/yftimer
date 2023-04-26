@@ -2,7 +2,7 @@
 package timer
 
 /*
-* Copyright (c) 2023 jiazhi.xue <xuejiazhi@gmail.com>
+* Copyright (c) 2023 JiaZhi.xue <xuejiazhi@gmail.com>
 *
 * This program is free software: you can use, redistribute, and/or modify
 * it under the terms of the MIT license as published by the Free Software
@@ -23,26 +23,28 @@ import (
 )
 
 const (
-	MinRunTime            = 10 * time.Millisecond
-	QueueSize             = 10000 //队列长长度
-	Unlimited       int32 = -1
-	DefaultPriority int32 = 1
+	MinRunTime              = 10 * time.Millisecond
+	QueueSize               = 10000 //队列长长度
+	MaxScheduleLength       = 10000 //每个对像最大任务个数
+	Unlimited         int32 = -1
+	DefaultPriority   int32 = 1
 )
 
 // CallBackFunc Define the callback function
 type CallBackFunc func(interface{})
+type TimerS []*Schedule
 
 // HeapTimer Minimum heap timer structure definition
 
 type HeapTimer struct {
 	Locker            *sync.Mutex
 	CloseTag          chan bool
-	SwapTimerSchedule []*Schedule
-	TimerSchedule     []*Schedule
+	SwapTimerSchedule TimerS
+	TimerSchedule     TimerS
 }
 
 type Schedule struct {
-	Index        int64         `json:"index"`          //index
+	Index        int           `json:"index"`          //index
 	RunningTime  time.Time     `json:"running_time"`   //Execution time
 	GrowthTime   time.Duration `json:"growth_time"`    //Each increment of time
 	Priority     int32         `json:"priority"`       //Priority
@@ -57,14 +59,48 @@ var (
 	IndexMap    sync.Map
 )
 
+// Len heap get TimerS length
+func (h TimerS) Len() int {
+	return len(h)
+}
+
+// Less heap judge Priority
+func (h TimerS) Less(i, j int) bool {
+	p1 := h[i].Priority
+	p2 := h[j].Priority
+	return p1 < p2
+}
+
+func (h TimerS) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}
+
+// Push  heap push value
+func (h *TimerS) Push(v interface{}) {
+	*h = append(*h, v.(*Schedule))
+}
+
+// Pop heap pop data
+func (h *TimerS) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	//return x
+	return x
+}
+
 type HeapInterface interface {
 	WorkChan()
 	StarTimer()
 	ScheduleLoop()
 	Cancel()
-	StopIdx(int64)
-	AddScheduleFunc(time.Duration, CallBackFunc, interface{}, ...int) int64
-	AddCallBack(time.Duration, CallBackFunc, interface{}, ...int) int64
+	StopIdx(int)
+	ForceStopIdx(int)
+	GetRunScLength() int
+	GetRunScIndexList() *[]int
+	AddScheduleFunc(time.Duration, CallBackFunc, interface{}, ...int) int
+	AddCallBack(time.Duration, CallBackFunc, interface{}, ...int) int
 }
 
 // GetInstance begin get instance
@@ -78,7 +114,7 @@ func GetInstance(queueSize int) HeapInterface {
 	HandleQueue = make(chan *Schedule, queueSize)
 
 	//init
-	var t HeapTimer
+	var t TimerS
 	heap.Init(&t)
 
 	//define Heap Timer
@@ -110,52 +146,22 @@ func (h *HeapTimer) WorkChan() {
 	}
 }
 
-// Len heap get TimerSchedule length
-func (h *HeapTimer) Len() int {
-	return len(h.TimerSchedule)
-}
-
-// Less heap judge Priority
-func (h *HeapTimer) Less(i, j int) bool {
-	p1 := h.TimerSchedule[i].Priority
-	p2 := h.TimerSchedule[j].Priority
-	return p1 < p2
-}
-
-func (h *HeapTimer) Swap(i, j int) {
-	h.TimerSchedule[i], h.TimerSchedule[j] = h.TimerSchedule[j], h.TimerSchedule[i]
-}
-
-// Push  heap push value
-func (h *HeapTimer) Push(v interface{}) {
-	h.TimerSchedule = append(h.TimerSchedule, v.(*Schedule))
-}
-
-// Pop heap pop data
-func (h *HeapTimer) Pop() interface{} {
-	old := h.TimerSchedule
-	n := len(old)
-	x := old[n-1]
-	h.TimerSchedule = old[0 : n-1]
-	//return x
-	return x
-}
-
-/*
- @ AddScheduleFunc Add a task
- t : time.Duration How often does it run
- callBack : Callback function
- params : Parameter of callback function. Only interface{} is supported;
- addParams ：The first value of the variable argument is the value of MaxRunTimes,
-             which defaults to -1, and the second value is the value of Priority
-*/
-//AddScheduleFunc add schedule
-func (h *HeapTimer) AddScheduleFunc(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int64 {
+// AddScheduleFunc /*
+// AddScheduleFunc add schedule
+func (h *HeapTimer) AddScheduleFunc(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int {
+	/*
+	 @ AddScheduleFunc Add a task
+	 t : time.Duration How often does it run
+	 callBack : Callback function
+	 params : Parameter of callback function. Only interface{} is supported;
+	 addParams ：The first value of the variable argument is the value of MaxRunTimes,
+	             which defaults to -1, and the second value is the value of Priority
+	*/
 	return h.AddCallBack(t, callBack, params, addParams...)
 }
 
 // AddCallBack add call back
-func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int64 {
+func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params interface{}, addParams ...int) int {
 	//panic recover
 	defer handelPanic()
 
@@ -163,6 +169,14 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	if t < MinRunTime {
 		t = MinRunTime
 	}
+
+	//If the number of tasks is greater than or
+	//equal to the maximum number, the task is discarded
+	// return zero
+	if h.TimerSchedule.Len() >= MaxScheduleLength {
+		return 0
+	}
+
 	//LOCK and UnLock
 	h.Locker.Lock()
 	defer h.Locker.Unlock()
@@ -171,6 +185,7 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	runTimes := Unlimited       //Unrestricted representation
 	priority := DefaultPriority //priority
 
+	//set runtimes and priority
 	if len(addParams) > 0 {
 		//The first value is MaxRunTimes
 		if addParams[0] > 0 {
@@ -186,7 +201,7 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	index := getIndex()
 
 	//Push
-	heap.Push(h, &Schedule{
+	heap.Push(&h.TimerSchedule, &Schedule{
 		Index:        index,
 		Params:       params,
 		RunningTime:  time.Now().Add(t),
@@ -209,13 +224,13 @@ func (h *HeapTimer) StarTimer() {
 	go func() {
 		for {
 			select {
-			case t := <-h.CloseTag:
-				if t {
+			case t, ok := <-h.CloseTag:
+				if ok && t {
 					runtime.Goexit()
 				}
 			default:
-				h.ScheduleLoop()
 				time.Sleep(MinRunTime)
+				h.ScheduleLoop()
 			}
 		}
 	}()
@@ -228,8 +243,42 @@ func (h *HeapTimer) Cancel() {
 	h.CloseTag <- true
 }
 
-func (h *HeapTimer) StopIdx(index int64) {
+// StopIdx Stop the task based on the value of Index
+func (h *HeapTimer) StopIdx(index int) {
+	//set sync
 	IndexMap.Store(index, false)
+}
+
+// ForceStopIdx Force the task to stop based on the value of Index
+func (h *HeapTimer) ForceStopIdx(index int) {
+	//LOCKER
+	h.Locker.Lock()
+	defer h.Locker.Unlock()
+	//search index remove
+	for i, k := range h.TimerSchedule {
+		if k.Index == index {
+			//remove heap
+			heap.Remove(&h.TimerSchedule, i)
+			//remove sync map
+			IndexMap.Delete(index)
+		}
+	}
+}
+
+// GetRunScLength  get run schedule length
+func (h *HeapTimer) GetRunScLength() int {
+	return h.TimerSchedule.Len()
+}
+
+func (h *HeapTimer) GetRunScIndexList() *[]int {
+	//define value list
+	var indexList []int
+	//range sync map
+	IndexMap.Range(func(key, value any) bool {
+		indexList = append(indexList, key.(int))
+		return true
+	})
+	return &indexList
 }
 
 // ScheduleLoop
@@ -239,21 +288,26 @@ func (h *HeapTimer) ScheduleLoop() {
 	//panic recover
 	defer handelPanic()
 
+	//define
+	nowTime := time.Now()
+	timerLen := h.TimerSchedule.Len()
+
+	//judge len
+	if h.TimerSchedule.Len() <= 0 {
+		return
+	}
+
 	//Locker
 	h.Locker.Lock()
 	defer h.Locker.Unlock()
-	sTime := time.Now()
-	for i := 0; i < h.Len(); i++ {
-		if h.Len() <= 0 {
-			break
-		}
 
+	for i := 0; i < timerLen; i++ {
 		//Fetch data from the minimum heap
-		t := heap.Pop(h).(*Schedule)
+		t := heap.Pop(&h.TimerSchedule).(*Schedule)
 
 		//Determine whether it has been stopped
 		if idx, ok := IndexMap.Load(t.Index); ok {
-			if idx.(bool) == false {
+			if !idx.(bool) {
 				IndexMap.Delete(t.Index)
 				break
 			}
@@ -262,7 +316,7 @@ func (h *HeapTimer) ScheduleLoop() {
 			IndexMap.Store(t.Index, true)
 		}
 
-		if t.RunningTime.Before(sTime) {
+		if t.RunningTime.Before(nowTime) {
 			//Plug the handle into the HandleQueue
 			HandleQueue <- t
 
@@ -276,7 +330,7 @@ func (h *HeapTimer) ScheduleLoop() {
 			}
 
 			//Example Change the next execution time
-			t.RunningTime = sTime.Add(t.GrowthTime)
+			t.RunningTime = nowTime.Add(t.GrowthTime)
 		}
 
 		//judge Priority
@@ -291,7 +345,7 @@ func (h *HeapTimer) ScheduleLoop() {
 	}
 
 	//judge and operate
-	if h.Len() == 0 {
+	if h.TimerSchedule.Len() == 0 {
 		//copy swap to schedule
 		h.TimerSchedule = h.SwapTimerSchedule
 		//clean slice
@@ -314,10 +368,10 @@ func handelPanic() {
 }
 
 // getIndex
-func getIndex() (index int64) {
+func getIndex() (index int) {
 	i := 0
 	for {
-		index = rand.Int63n(99999999) + 10000000
+		index = rand.Intn(9999999) + 1000000
 		_, ok := IndexMap.Load(index)
 		if !ok {
 			return
