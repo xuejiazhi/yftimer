@@ -127,8 +127,11 @@ func Test_StopByIndex(t *testing.T) {
 func Test_BatchSchedule(t *testing.T) {
 	//Initializes and sets the queue size
 	inst := GetInstance(10000)
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		inst.AddScheduleFunc(3*time.Second, FuncTest1, fmt.Sprintf("hello my id is=>%d", i))
+	}
+	for i := 10; i < 20; i++ {
+		inst.AddScheduleFunc(10*time.Second, FuncTest1, fmt.Sprintf("hello my id is=>%d", i))
 	}
 	inst.StarTimer()
 	select {}

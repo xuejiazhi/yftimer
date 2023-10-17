@@ -14,9 +14,11 @@ package timer
  */
 import (
 	"container/heap"
+	"hytimer/sdk/go-cache-master"
 	"math/rand"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,7 +58,8 @@ type Schedule struct {
 
 var (
 	HandleQueue chan *Schedule
-	IndexMap    sync.Map
+	//IndexMap    sync.Map
+	IndexCache *cache.Cache
 )
 
 // Len heap get TimerS length
@@ -98,13 +101,15 @@ type HeapInterface interface {
 	StopIdx(int)
 	ForceStopIdx(int)
 	GetRunScLength() int
-	GetRunScIndexList() *[]int
+	GetRunScIndexList() *[]string
 	AddScheduleFunc(time.Duration, CallBackFunc, interface{}, ...int) int
 	AddCallBack(time.Duration, CallBackFunc, interface{}, ...int) int
 }
 
 // GetInstance begin get instance
 func GetInstance(queueSize int) HeapInterface {
+	//define cache
+	IndexCache = cache.New(5*time.Minute, 10*time.Minute)
 	//define queueSize
 	if queueSize <= 0 {
 		queueSize = QueueSize
@@ -213,7 +218,8 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 	})
 
 	//push index
-	IndexMap.Store(index, true)
+	//IndexMap.Store(index, true)
+	IndexCache.Set("t_"+strconv.Itoa(index), 1, -1)
 
 	//return
 	return index
@@ -221,6 +227,7 @@ func (h *HeapTimer) AddCallBack(t time.Duration, callBack CallBackFunc, params i
 
 // StarTimer begin timer,call scheduleLoop Fetch data judgment
 func (h *HeapTimer) StarTimer() {
+	//run schedule
 	go func() {
 		for {
 			select {
@@ -246,13 +253,15 @@ func (h *HeapTimer) Cancel() {
 // StopIdx Stop the task based on the value of Index
 func (h *HeapTimer) StopIdx(index int) {
 	//set sync
-	IndexMap.Store(index, false)
+	//IndexMap.Store(index, false)
+	IndexCache.Delete("t_" + strconv.Itoa(index))
 }
 
 // ForceStopIdx Force the task to stop based on the value of Index
 func (h *HeapTimer) ForceStopIdx(index int) {
 	//LOCKER
 	h.Locker.Lock()
+
 	defer h.Locker.Unlock()
 	//search index remove
 	for i, k := range h.TimerSchedule {
@@ -260,7 +269,8 @@ func (h *HeapTimer) ForceStopIdx(index int) {
 			//remove heap
 			heap.Remove(&h.TimerSchedule, i)
 			//remove sync map
-			IndexMap.Delete(index)
+			//IndexMap.Delete(index)
+			IndexCache.Delete("t_" + strconv.Itoa(index))
 		}
 	}
 }
@@ -270,14 +280,17 @@ func (h *HeapTimer) GetRunScLength() int {
 	return h.TimerSchedule.Len()
 }
 
-func (h *HeapTimer) GetRunScIndexList() *[]int {
+func (h *HeapTimer) GetRunScIndexList() *[]string {
 	//define value list
-	var indexList []int
+	var indexList []string
 	//range sync map
-	IndexMap.Range(func(key, value any) bool {
-		indexList = append(indexList, key.(int))
-		return true
-	})
+	for key, _ := range IndexCache.Items() {
+		indexList = append(indexList, key)
+	}
+	//IndexMap.Range(func(key, value any) bool {
+	//	indexList = append(indexList, key.(int))
+	//	return true
+	//})
 	return &indexList
 }
 
@@ -305,15 +318,19 @@ func (h *HeapTimer) ScheduleLoop() {
 		//Fetch data from the minimum heap
 		t := heap.Pop(&h.TimerSchedule).(*Schedule)
 
-		//Determine whether it has been stopped
-		if idx, ok := IndexMap.Load(t.Index); ok {
-			if !idx.(bool) {
-				IndexMap.Delete(t.Index)
-				break
-			}
-		} else {
-			//It's not in the map. Save a copy
-			IndexMap.Store(t.Index, true)
+		////Determine whether it has been stopped
+		//if idx, ok := IndexMap.Load(t.Index); ok {
+		//	if !idx.(bool) {
+		//		IndexMap.Delete(t.Index)
+		//		break
+		//	}
+		//} else {
+		//	//It's not in the map. Save a copy
+		//	IndexMap.Store(t.Index, true)
+		//}
+
+		if _, ok := IndexCache.Get("t_" + strconv.Itoa(t.Index)); !ok {
+			break
 		}
 
 		if t.RunningTime.Before(nowTime) {
@@ -372,7 +389,8 @@ func getIndex() (index int) {
 	i := 0
 	for {
 		index = rand.Intn(9999999) + 1000000
-		_, ok := IndexMap.Load(index)
+		//_, ok := IndexMap.Load(index)
+		_, ok := IndexCache.Get("t_" + strconv.Itoa(index))
 		if !ok {
 			return
 		}
