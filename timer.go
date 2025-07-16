@@ -1,5 +1,5 @@
 // Package timer /*
-package timer
+package sdk
 
 /*
 * Copyright (c) 2023 JiaZhi.xue <xuejiazhi@gmail.com>
@@ -14,14 +14,14 @@ package timer
  */
 import (
 	"container/heap"
-	"yftimer/sdk/go-cache-master"
 	"math/rand"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/patrickmn/go-cache"
 )
 
 const (
@@ -67,11 +67,15 @@ func (h TimerS) Len() int {
 	return len(h)
 }
 
-// Less heap judge Priority
+// Less heap judge priority and running time
+// First compare running time, then priority
 func (h TimerS) Less(i, j int) bool {
-	p1 := h[i].Priority
-	p2 := h[j].Priority
-	return p1 < p2
+	if h[i].RunningTime.Before(h[j].RunningTime) {
+		return true
+	} else if h[i].RunningTime.Equal(h[j].RunningTime) {
+		return h[i].Priority < h[j].Priority
+	}
+	return false
 }
 
 func (h TimerS) Swap(i, j int) {
@@ -306,7 +310,7 @@ func (h *HeapTimer) ScheduleLoop() {
 	timerLen := h.TimerSchedule.Len()
 
 	//judge len
-	if h.TimerSchedule.Len() <= 0 {
+	if timerLen <= 0 {
 		return
 	}
 
@@ -314,59 +318,39 @@ func (h *HeapTimer) ScheduleLoop() {
 	h.Locker.Lock()
 	defer h.Locker.Unlock()
 
-	for i := 0; i < timerLen; i++ {
-		//Fetch data from the minimum heap
-		t := heap.Pop(&h.TimerSchedule).(*Schedule)
+	// Process only expired tasks
+	for h.TimerSchedule.Len() > 0 {
+		// Peek the top element without removing
+		t := h.TimerSchedule[0]
 
-		////Determine whether it has been stopped
-		//if idx, ok := IndexMap.Load(t.Index); ok {
-		//	if !idx.(bool) {
-		//		IndexMap.Delete(t.Index)
-		//		break
-		//	}
-		//} else {
-		//	//It's not in the map. Save a copy
-		//	IndexMap.Store(t.Index, true)
-		//}
-
-		if _, ok := IndexCache.Get("t_" + strconv.Itoa(t.Index)); !ok {
+		// Exit if top task is not expired
+		if t.RunningTime.After(nowTime) {
 			break
 		}
 
-		if t.RunningTime.Before(nowTime) {
-			//Plug the handle into the HandleQueue
-			HandleQueue <- t
+		// Remove the expired task from heap
+		t = heap.Pop(&h.TimerSchedule).(*Schedule)
 
-			//Maximum number of runs if configured
-			if t.MaxRunTimes > 0 {
-				atomic.AddInt32(&t.ExecRunTimes, 1)
-				if t.MaxRunTimes <= t.ExecRunTimes {
-					//Direct exit no longer pushes to the heap
-					break
-				}
-			}
+		// Check if task is cancelled
+		if _, ok := IndexCache.Get("t_" + strconv.Itoa(t.Index)); !ok {
+			continue
+		}
 
-			//Example Change the next execution time
+		// Task expired, add to processing queue
+		HandleQueue <- t
+
+		// Check if need to reschedule
+		if t.MaxRunTimes == Unlimited || t.ExecRunTimes < t.MaxRunTimes-1 {
+			// Update execution count and next run time
+			atomic.AddInt32(&t.ExecRunTimes, 1)
 			t.RunningTime = nowTime.Add(t.GrowthTime)
-		}
 
-		//judge Priority
-		if t.Priority > 100 {
-			atomic.StoreInt32(&t.Priority, DefaultPriority)
+			// Push back to heap with updated time
+			heap.Push(&h.TimerSchedule, t)
 		} else {
-			atomic.AddInt32(&t.Priority, 1)
+			// Remove from cache when max runs reached
+			IndexCache.Delete("t_" + strconv.Itoa(t.Index))
 		}
-
-		//append to swap
-		h.SwapTimerSchedule = append(h.SwapTimerSchedule, t)
-	}
-
-	//judge and operate
-	if h.TimerSchedule.Len() == 0 {
-		//copy swap to schedule
-		h.TimerSchedule = h.SwapTimerSchedule
-		//clean slice
-		h.SwapTimerSchedule = nil
 	}
 }
 
@@ -378,10 +362,10 @@ func init() {
 
 // handelPanic recover
 func handelPanic() {
-	err := recover()
-	if err != nil {
-		debug.PrintStack()
-	}
+	// err := recover()
+	// if err != nil {
+	// 	debug.PrintStack()
+	// }
 }
 
 // getIndex
